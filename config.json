@@ -1,6 +1,6 @@
 {
   // motion: 기존 모션 분석, coin: 코인 게임, word: 같은 글자 맞추기
-  "mode": "word",
+  "mode": "coin",
 
   // true: 카메라 좌우반전, false: 기본 방향
   "mirrorCamera": true,
