@@ -1,0 +1,2197 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>웹캠 사람 운동 분석</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #000;
+      color: #f9fafb;
+    }
+
+    /* 제목 영역: 카메라 화면 위에 반투명으로 표시 */
+    header {
+      position: fixed;
+      left: 16px;
+      top: 16px;
+      z-index: 30;
+      width: min(520px, calc(100vw - 32px));
+      padding: 14px 18px;
+      background: rgba(2, 6, 23, 0.72);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 14px;
+      backdrop-filter: blur(10px);
+    }
+
+    header h1 {
+      margin: 0 0 6px 0;
+      font-size: 24px;
+    }
+
+    header p {
+      margin: 0;
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+
+    /* 전체 화면 레이아웃 */
+    main {
+      position: fixed;
+      inset: 0;
+      display: block;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    /* 카메라 영역 전체화면 */
+    .stage {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      margin: 0;
+      background: #000;
+      border: 0;
+      border-radius: 0;
+      overflow: hidden;
+    }
+
+    /* 웹캠과 오버레이 캔버스를 화면 전체에 맞춤 */
+    video,
+    canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* 궤적/골격선은 카메라 위에 겹쳐서 표시 */
+    #overlay {
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* 오른쪽 조작 패널을 카메라 위에 띄움 */
+    .panel {
+      position: fixed;
+      right: 16px;
+      top: 16px;
+      z-index: 40;
+      width: 340px;
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+      background: rgba(2, 6, 23, 0.76);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 14px;
+      padding: 16px;
+      backdrop-filter: blur(10px);
+    }
+
+    .panel h2 {
+      margin: 0 0 12px 0;
+      font-size: 18px;
+    }
+
+    .controls {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    #startBtn {
+      background: #22c55e;
+      color: #052e16;
+    }
+
+    #stopBtn {
+      background: #ef4444;
+      color: #fff;
+    }
+
+    #recordBtn {
+      background: #38bdf8;
+      color: #082f49;
+    }
+
+    #recordStopBtn {
+      background: #f97316;
+      color: #fff;
+    }
+
+    .download-link {
+      display: none;
+      text-align: center;
+      text-decoration: none;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 15px;
+      font-weight: 800;
+      background: #a78bfa;
+      color: #1e1b4b;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .hint {
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+
+    #status {
+      font-size: 14px;
+      color: #facc15;
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+
+    .person-card {
+      border: 1px solid #334155;
+      border-left-width: 7px;
+      border-radius: 12px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      background: #0f172a;
+    }
+
+    .person-card strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 15px;
+    }
+
+    .person-card div {
+      font-size: 14px;
+      color: #e2e8f0;
+      line-height: 1.6;
+    }
+
+    .small {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    .score-line {
+      font-size: 16px;
+      font-weight: 800;
+      color: #facc15;
+    }
+
+    .winner {
+      color: #fde68a;
+      font-weight: 900;
+    }
+
+    /* 작은 화면에서는 패널을 아래쪽으로 이동 */
+    @media (max-width: 900px) {
+      header {
+        left: 10px;
+        top: 10px;
+        width: calc(100vw - 20px);
+        padding: 12px 14px;
+      }
+
+      header h1 {
+        font-size: 18px;
+      }
+
+      header p {
+        font-size: 12px;
+      }
+
+      .panel {
+        left: 10px;
+        right: 10px;
+        top: auto;
+        bottom: 10px;
+        width: auto;
+        max-height: 42vh;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>웹캠 사람 운동 분석</h1>
+    <p>사람의 움직임을 분석하고, 코인 잡기 또는 같은 글자 맞추기 게임을 실행합니다.</p>
+  </header>
+
+  <main>
+    <section class="stage">
+      <video id="webcam" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+    </section>
+
+    <aside class="panel">
+      <h2>측정 제어</h2>
+
+      <div class="controls">
+        <button id="startBtn">카메라 시작</button>
+        <button id="stopBtn" disabled>정지</button>
+        <button id="recordBtn" disabled>녹화 시작</button>
+        <button id="recordStopBtn" disabled>녹화 정지</button>
+        <a id="downloadLink" class="download-link" href="#" download="motion_recording.webm">녹화파일 다운로드</a>
+      </div>
+
+      <div class="hint">
+        모드와 실제 단위 보정값은 <b>config.json</b>에서 설정합니다.<br>
+        <span id="configInfo">설정값을 불러오는 중입니다.</span>
+      </div>
+
+      <div id="status">모델을 불러오는 중입니다.</div>
+
+      <h2>실시간 분석값</h2>
+      <div id="metrics">
+        아직 측정값이 없습니다.
+      </div>
+    </aside>
+  </main>
+
+  <script type="module">
+    import {
+      PoseLandmarker,
+      FilesetResolver
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18";
+
+    const video = document.getElementById("webcam");
+    const canvas = document.getElementById("overlay");
+    const ctx = canvas.getContext("2d");
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const recordBtn = document.getElementById("recordBtn");
+    const recordStopBtn = document.getElementById("recordStopBtn");
+    const downloadLink = document.getElementById("downloadLink");
+    const statusEl = document.getElementById("status");
+    const metricsEl = document.getElementById("metrics");
+    const configInfoEl = document.getElementById("configInfo");
+
+    let poseLandmarker = null;
+    let stream = null;
+    let running = false;
+
+    let mediaRecorder = null;
+    let recording = false;
+    let recordedChunks = [];
+    let recordingStream = null;
+    let recordingCanvas = document.createElement("canvas");
+    let recordingCtx = recordingCanvas.getContext("2d");
+
+    /*
+      설정값은 config.json에서 불러옵니다.
+
+      mode:
+      - "motion": 기존 모션 분석 모드
+      - "coin": 화면에 랜덤으로 표시되는 코인을 손으로 잡는 게임 모드
+      - "word": 제시 단어와 같은 단어를 손으로 잡는 게임 모드
+
+      meterPixels:
+      - null 또는 0 이하: px/s, px/s² 단위로 표시
+      - 300처럼 양수: 화면에서 1m가 300px이라는 뜻이며, m/s, m/s²로 표시
+
+      coinGameSeconds:
+      - coin 모드 제한시간입니다.
+
+      coinCount:
+      - 화면에 동시에 표시되는 코인 개수입니다.
+
+      coinMinValue, coinMaxValue:
+      - 코인 액수 범위입니다. 실제 코인 값은 10 단위로 랜덤 생성됩니다.
+    */
+    const DEFAULT_CONFIG = {
+      mode: "motion",
+      meterPixels: null,
+      trailSeconds: 10,
+      configRefreshMs: 5000,
+
+      coinGameSeconds: 60,
+      coinCount: 8,
+      coinRadius: 30,
+      coinMinValue: 10,
+      coinMaxValue: 100,
+
+      // 코인 이동 속도(px/s)와 빠른 코인의 비율
+      coinSlowSpeed: 80,
+      coinFastSpeed: 220,
+      coinFastRatio: 0.35,
+
+      // 같은 글자 맞추기 모드 설정
+      wordGameSeconds: 30,
+      wordList: [
+        "과학", "물리", "화학", "생명과학", "지구과학",
+        "원자", "파동", "빛", "에너지", "자석",
+        "공기", "물", "전기", "우주"
+      ],
+      wordCount: 9,
+      wordScore: 10,
+      wordWrongPenalty: 5,
+      wordCardWidth: 150,
+      wordCardHeight: 70,
+      wordSlowSpeed: 60,
+      wordFastSpeed: 150,
+      wordFastRatio: 0.3,
+
+      // true이면 카메라 화면을 거울처럼 좌우반전합니다.
+      mirrorCamera: true
+    };
+
+    let appConfig = { ...DEFAULT_CONFIG };
+    let previousMode = DEFAULT_CONFIG.mode;
+    let configTimer = null;
+    let TRAIL_MS = DEFAULT_CONFIG.trailSeconds * 1000;
+
+    const TRACK_ALIVE_MS = 1200;
+    const MIN_LANDMARK_VISIBILITY = 0.35;
+
+    let nextTrackId = 1;
+    const tracks = new Map();
+
+    const coinGame = {
+      active: false,
+      startedAt: 0,
+      endsAt: 0,
+      gameOver: false,
+      coins: [],
+      scores: new Map(),
+      nextCoinId: 1,
+      lastUpdate: 0
+    };
+
+    const wordGame = {
+      active: false,
+      startedAt: 0,
+      endsAt: 0,
+      gameOver: false,
+      targetWord: "",
+      cards: [],
+      scores: new Map(),
+      nextCardId: 1,
+      lastUpdate: 0
+    };
+
+    const COLORS = [
+      "#ff3b30", "#34c759", "#007aff", "#ffcc00",
+      "#af52de", "#ff9500", "#00c7be", "#ff2d55"
+    ];
+
+    const POSE_CONNECTIONS = [
+      [11, 12],
+      [11, 13], [13, 15],
+      [12, 14], [14, 16],
+      [11, 23], [12, 24],
+      [23, 24],
+      [23, 25], [25, 27], [27, 29], [29, 31],
+      [24, 26], [26, 28], [28, 30], [30, 32],
+      [15, 17], [15, 19], [15, 21],
+      [16, 18], [16, 20], [16, 22]
+    ];
+
+    async function loadConfig() {
+  try {
+    const cacheBuster = Date.now();
+    const response = await fetch(`./config.json?v=${cacheBuster}`, {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(`config.json HTTP ${response.status}`);
+    }
+
+    // config.json을 텍스트로 먼저 읽음
+    const text = await response.text();
+
+    // JSON 안의 주석 제거
+    const jsonText = text
+      .replace(/\/\*[\s\S]*?\*\//g, "")  // /* 여러 줄 주석 제거 */
+      .replace(/^\s*\/\/.*$/gm, "");    // // 한 줄 주석 제거
+
+    // 주석이 제거된 텍스트를 JSON으로 변환
+    const config = JSON.parse(jsonText);
+
+    appConfig = normalizeConfig(config);
+    applyConfig();
+
+    console.log("config.json 로드 완료:", appConfig);
+  } catch (err) {
+    console.warn("config.json을 불러오지 못해 기본 설정을 사용합니다.", err);
+    appConfig = { ...DEFAULT_CONFIG };
+    applyConfig();
+  }
+}
+
+    function parseConfigBoolean(value, defaultValue) {
+      if (value === undefined || value === null) return defaultValue;
+      if (typeof value === "boolean") return value;
+
+      const textValue = String(value).trim().toLowerCase();
+
+      if (["true", "1", "yes", "on"].includes(textValue)) return true;
+      if (["false", "0", "no", "off"].includes(textValue)) return false;
+
+      return defaultValue;
+    }
+
+
+
+    function normalizeWordList(value, defaultList) {
+      let list = [];
+
+      if (Array.isArray(value)) {
+        list = value;
+      } else if (typeof value === "string") {
+        list = value.split(",");
+      }
+
+      list = list
+        .map(item => String(item).trim())
+        .filter(Boolean);
+
+      if (list.length === 0) {
+        list = [...defaultList];
+      }
+
+      return [...new Set(list)];
+    }
+    function normalizeConfig(config) {
+      const rawMode = String(config.mode ?? DEFAULT_CONFIG.mode).trim().toLowerCase();
+      const mode = ["coin", "word"].includes(rawMode) ? rawMode : "motion";
+
+      const meterPixels = Number(config.meterPixels);
+      const trailSeconds = Number(config.trailSeconds);
+      const configRefreshMs = Number(config.configRefreshMs);
+
+      const coinGameSeconds = Number(config.coinGameSeconds);
+      const coinCount = Number(config.coinCount);
+      const coinRadius = Number(config.coinRadius);
+      const coinMinValue = Number(config.coinMinValue);
+      const coinMaxValue = Number(config.coinMaxValue);
+      const coinSlowSpeed = Number(config.coinSlowSpeed);
+      const coinFastSpeed = Number(config.coinFastSpeed);
+      const coinFastRatio = Number(config.coinFastRatio);
+      const mirrorCamera = parseConfigBoolean(config.mirrorCamera, DEFAULT_CONFIG.mirrorCamera);
+
+      const wordGameSeconds = Number(config.wordGameSeconds);
+      const wordCount = Number(config.wordCount);
+      const wordScore = Number(config.wordScore);
+      const wordWrongPenalty = Number(config.wordWrongPenalty);
+      const wordCardWidth = Number(config.wordCardWidth);
+      const wordCardHeight = Number(config.wordCardHeight);
+      const wordSlowSpeed = Number(config.wordSlowSpeed);
+      const wordFastSpeed = Number(config.wordFastSpeed);
+      const wordFastRatio = Number(config.wordFastRatio);
+      const wordList = normalizeWordList(
+        config.wordList ?? config.wordTargetList ?? config.wordChoices,
+        DEFAULT_CONFIG.wordList
+      );
+
+      const minValue = Number.isFinite(coinMinValue) && coinMinValue >= 10
+        ? Math.round(coinMinValue / 10) * 10
+        : DEFAULT_CONFIG.coinMinValue;
+
+      const maxValue = Number.isFinite(coinMaxValue) && coinMaxValue >= minValue
+        ? Math.round(coinMaxValue / 10) * 10
+        : Math.max(DEFAULT_CONFIG.coinMaxValue, minValue);
+
+      return {
+        mode,
+        meterPixels:
+          Number.isFinite(meterPixels) && meterPixels > 0
+            ? meterPixels
+            : null,
+        trailSeconds:
+          Number.isFinite(trailSeconds) && trailSeconds > 0
+            ? trailSeconds
+            : DEFAULT_CONFIG.trailSeconds,
+        configRefreshMs:
+          Number.isFinite(configRefreshMs) && configRefreshMs >= 1000
+            ? configRefreshMs
+            : DEFAULT_CONFIG.configRefreshMs,
+
+        coinGameSeconds:
+          Number.isFinite(coinGameSeconds) && coinGameSeconds > 0
+            ? coinGameSeconds
+            : DEFAULT_CONFIG.coinGameSeconds,
+        coinCount:
+          Number.isFinite(coinCount) && coinCount > 0
+            ? Math.min(Math.round(coinCount), 30)
+            : DEFAULT_CONFIG.coinCount,
+        coinRadius:
+          Number.isFinite(coinRadius) && coinRadius >= 12
+            ? Math.min(Math.round(coinRadius), 80)
+            : DEFAULT_CONFIG.coinRadius,
+        coinMinValue: minValue,
+        coinMaxValue: maxValue,
+        coinSlowSpeed:
+          Number.isFinite(coinSlowSpeed) && coinSlowSpeed >= 0
+            ? coinSlowSpeed
+            : DEFAULT_CONFIG.coinSlowSpeed,
+        coinFastSpeed:
+          Number.isFinite(coinFastSpeed) && coinFastSpeed >= 0
+            ? Math.max(coinFastSpeed, Number.isFinite(coinSlowSpeed) ? coinSlowSpeed : DEFAULT_CONFIG.coinSlowSpeed)
+            : DEFAULT_CONFIG.coinFastSpeed,
+        coinFastRatio:
+          Number.isFinite(coinFastRatio)
+            ? clamp(coinFastRatio, 0, 1)
+            : DEFAULT_CONFIG.coinFastRatio,
+
+        wordGameSeconds:
+          Number.isFinite(wordGameSeconds) && wordGameSeconds > 0
+            ? wordGameSeconds
+            : DEFAULT_CONFIG.wordGameSeconds,
+        wordList,
+        wordCount:
+          Number.isFinite(wordCount) && wordCount > 0
+            ? Math.min(Math.round(wordCount), 40)
+            : DEFAULT_CONFIG.wordCount,
+        wordScore:
+          Number.isFinite(wordScore) && wordScore > 0
+            ? Math.round(wordScore)
+            : DEFAULT_CONFIG.wordScore,
+        wordWrongPenalty:
+          Number.isFinite(wordWrongPenalty) && wordWrongPenalty >= 0
+            ? Math.round(wordWrongPenalty)
+            : DEFAULT_CONFIG.wordWrongPenalty,
+        wordCardWidth:
+          Number.isFinite(wordCardWidth) && wordCardWidth >= 70
+            ? Math.min(Math.round(wordCardWidth), 320)
+            : DEFAULT_CONFIG.wordCardWidth,
+        wordCardHeight:
+          Number.isFinite(wordCardHeight) && wordCardHeight >= 40
+            ? Math.min(Math.round(wordCardHeight), 160)
+            : DEFAULT_CONFIG.wordCardHeight,
+        wordSlowSpeed:
+          Number.isFinite(wordSlowSpeed) && wordSlowSpeed >= 0
+            ? wordSlowSpeed
+            : DEFAULT_CONFIG.wordSlowSpeed,
+        wordFastSpeed:
+          Number.isFinite(wordFastSpeed) && wordFastSpeed >= 0
+            ? Math.max(wordFastSpeed, Number.isFinite(wordSlowSpeed) ? wordSlowSpeed : DEFAULT_CONFIG.wordSlowSpeed)
+            : DEFAULT_CONFIG.wordFastSpeed,
+        wordFastRatio:
+          Number.isFinite(wordFastRatio)
+            ? clamp(wordFastRatio, 0, 1)
+            : DEFAULT_CONFIG.wordFastRatio,
+
+        mirrorCamera
+      };
+    }
+
+    function applyConfig() {
+      const modeChanged = previousMode !== appConfig.mode;
+      previousMode = appConfig.mode;
+
+      TRAIL_MS = appConfig.trailSeconds * 1000;
+
+      const modeText =
+        appConfig.mode === "coin"
+          ? "coin / 코인 잡기 게임"
+          : appConfig.mode === "word"
+            ? "word / 같은 글자 맞추기"
+            : "motion / 기존 모션 분석";
+
+      const meterText = appConfig.meterPixels
+        ? `1m = ${appConfig.meterPixels}px, m/s와 m/s² 표시`
+        : `보정 사용 안 함, px/s와 px/s² 표시`;
+
+      const cameraText = appConfig.mirrorCamera ? "좌우반전" : "기본 방향";
+      video.style.transform = appConfig.mirrorCamera ? "scaleX(-1)" : "none";
+      video.style.transformOrigin = "center center";
+
+      if (appConfig.mode === "coin") {
+        configInfoEl.innerHTML =
+          `현재 모드: <b>${modeText}</b><br>` +
+          `카메라: <b>${cameraText}</b><br>` +
+          `보정값: <b>${meterText}</b><br>` +
+          `게임 제한시간: <b>${appConfig.coinGameSeconds}초</b>, ` +
+          `코인 수: <b>${appConfig.coinCount}개</b><br>` +
+          `코인 액수: <b>${appConfig.coinMinValue}~${appConfig.coinMaxValue}</b>, ` +
+          `느린 코인: <b>${appConfig.coinSlowSpeed}px/s</b>, ` +
+          `빠른 코인: <b>${appConfig.coinFastSpeed}px/s</b>`;
+      } else if (appConfig.mode === "word") {
+        configInfoEl.innerHTML =
+          `현재 모드: <b>${modeText}</b><br>` +
+          `카메라: <b>${cameraText}</b><br>` +
+          `단어 목록: <b>${appConfig.wordList.join(", ")}</b><br>` +
+          `게임 제한시간: <b>${appConfig.wordGameSeconds}초</b>, ` +
+          `단어 카드 수: <b>${appConfig.wordCount}개</b><br>` +
+          `정답 점수: <b>+${appConfig.wordScore}점</b>, ` +
+          `오답 감점: <b>-${appConfig.wordWrongPenalty}점</b>`;
+      } else {
+        configInfoEl.innerHTML =
+          `현재 모드: <b>${modeText}</b><br>` +
+          `카메라: <b>${cameraText}</b><br>` +
+          `보정값: <b>${meterText}</b><br>` +
+          `궤적 유지: <b>${appConfig.trailSeconds}초</b>`;
+      }
+
+      if (modeChanged) {
+        if (appConfig.mode === "coin") {
+          clearWordGame();
+          resetCoinGame(performance.now());
+        } else if (appConfig.mode === "word") {
+          clearCoinGame();
+          resetWordGame(performance.now());
+        } else {
+          clearCoinGame();
+          clearWordGame();
+        }
+      }
+
+      if (appConfig.mode === "coin" && coinGame.active && !coinGame.gameOver) {
+        adjustCoinCount();
+      }
+
+      if (appConfig.mode === "word" && wordGame.active && !wordGame.gameOver) {
+        adjustWordCount();
+      }
+
+      restartConfigPolling();
+    }
+
+    function restartConfigPolling() {
+      if (configTimer) {
+        clearInterval(configTimer);
+      }
+
+      configTimer = setInterval(() => {
+        loadConfig();
+      }, appConfig.configRefreshMs);
+    }
+
+    async function initPoseLandmarker() {
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm"
+      );
+
+      const options = {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+          delegate: "GPU"
+        },
+        runningMode: "VIDEO",
+        numPoses: 6,
+        minPoseDetectionConfidence: 0.45,
+        minPosePresenceConfidence: 0.45,
+        minTrackingConfidence: 0.45
+      };
+
+      try {
+        poseLandmarker = await PoseLandmarker.createFromOptions(vision, options);
+      } catch (err) {
+        console.warn("GPU 초기화 실패, CPU로 재시도합니다.", err);
+        delete options.baseOptions.delegate;
+        poseLandmarker = await PoseLandmarker.createFromOptions(vision, options);
+      }
+
+      statusEl.textContent = "모델 준비 완료. 카메라 시작을 누르세요.";
+      startBtn.disabled = false;
+    }
+
+    async function requestBrowserFullscreen() {
+      try {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (e) {
+        console.log("전체화면 전환이 차단되었습니다. 브라우저 정책상 정상일 수 있습니다.", e);
+      }
+    }
+
+    async function startCamera() {
+      if (!poseLandmarker) {
+        statusEl.textContent = "아직 모델을 불러오는 중입니다.";
+        return;
+      }
+
+      try {
+        await requestBrowserFullscreen();
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
+          },
+          audio: false
+        });
+
+        video.srcObject = stream;
+
+        await new Promise(resolve => {
+          video.onloadedmetadata = resolve;
+        });
+
+        await video.play();
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        await requestBrowserFullscreen();
+
+        running = true;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        recordBtn.disabled = false;
+        recordStopBtn.disabled = true;
+
+        tracks.clear();
+
+        if (appConfig.mode === "coin") {
+          clearWordGame();
+          resetCoinGame(performance.now());
+          statusEl.textContent = "코인 게임 중입니다. 손목으로 코인을 잡아 점수를 얻으세요.";
+        } else if (appConfig.mode === "word") {
+          clearCoinGame();
+          resetWordGame(performance.now());
+          statusEl.textContent = "같은 글자 맞추기 게임 중입니다. 상단 제시 단어와 같은 단어를 손목으로 잡으세요.";
+        } else {
+          clearCoinGame();
+          clearWordGame();
+          statusEl.textContent = "측정 중입니다. 사람의 중심 이동 궤적이 최근 설정 시간 동안 표시됩니다.";
+        }
+
+        requestAnimationFrame(renderLoop);
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent =
+          "카메라를 열 수 없습니다. 브라우저 카메라 권한, HTTPS/localhost 실행 여부를 확인하세요.";
+      }
+    }
+
+    async function stopCamera() {
+      if (recording) {
+        stopRecording();
+      }
+
+      running = false;
+
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      tracks.clear();
+      clearCoinGame();
+      clearWordGame();
+
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      recordBtn.disabled = true;
+      recordStopBtn.disabled = true;
+      metricsEl.textContent = "측정이 정지되었습니다.";
+      statusEl.textContent = "정지됨. 다시 시작할 수 있습니다.";
+
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+      } catch (e) {
+        console.log("전체화면 종료가 차단되었습니다.", e);
+      }
+    }
+
+    function renderLoop() {
+      if (!running) return;
+
+      const now = performance.now();
+
+      if (video.readyState >= 2) {
+        const result = poseLandmarker.detectForVideo(video, now);
+        const landmarks = result.landmarks || [];
+
+        updateTracks(landmarks, now);
+        removeOldTrailPoints(now);
+
+        if (appConfig.mode === "coin") {
+          updateCoinGame(now);
+        } else if (appConfig.mode === "word") {
+          updateWordGame(now);
+        }
+
+        drawScene(now);
+        updateRecordingFrame();
+        updateMetrics(now);
+      }
+
+      requestAnimationFrame(renderLoop);
+    }
+
+    function updateTracks(poses, now) {
+      const detections = poses
+        .map(pose => {
+          const center = getPoseCenter(pose);
+          return center ? { landmarks: pose, center } : null;
+        })
+        .filter(Boolean);
+
+      const usedTrackIds = new Set();
+      const maxMatchDistance = Math.max(canvas.width, canvas.height) * 0.16;
+
+      for (const det of detections) {
+        let bestTrack = null;
+        let bestDistance = Infinity;
+
+        for (const track of tracks.values()) {
+          if (usedTrackIds.has(track.id)) continue;
+          if (now - track.lastSeen > TRACK_ALIVE_MS) continue;
+
+          const d = distance(det.center.x, det.center.y, track.x, track.y);
+
+          if (d < bestDistance) {
+            bestDistance = d;
+            bestTrack = track;
+          }
+        }
+
+        if (!bestTrack || bestDistance > maxMatchDistance) {
+          bestTrack = createTrack(det.center, now);
+          tracks.set(bestTrack.id, bestTrack);
+        }
+
+        usedTrackIds.add(bestTrack.id);
+        updateSingleTrack(bestTrack, det.center, det.landmarks, now);
+      }
+    }
+
+    function createTrack(center, now) {
+      const id = nextTrackId++;
+
+      return {
+        id,
+        color: COLORS[(id - 1) % COLORS.length],
+        x: center.x,
+        y: center.y,
+        lastX: center.x,
+        lastY: center.y,
+        vx: 0,
+        vy: 0,
+        lastVx: 0,
+        lastVy: 0,
+        speed: 0,
+        accel: 0,
+        lastT: now,
+        lastSeen: now,
+        landmarks: null,
+        points: [{ x: center.x, y: center.y, t: now }]
+      };
+    }
+
+    function updateSingleTrack(track, center, landmarks, now) {
+      const dt = Math.max((now - track.lastT) / 1000, 1 / 60);
+      const rawVx = (center.x - track.x) / dt;
+      const rawVy = (center.y - track.y) / dt;
+
+      const movement = distance(center.x, center.y, track.x, track.y);
+
+      let vx = rawVx;
+      let vy = rawVy;
+
+      if (movement < 2.5) {
+        vx = 0;
+        vy = 0;
+      }
+
+      const smoothing = 0.35;
+
+      track.lastVx = track.vx;
+      track.lastVy = track.vy;
+
+      track.vx = smoothing * vx + (1 - smoothing) * track.vx;
+      track.vy = smoothing * vy + (1 - smoothing) * track.vy;
+
+      const ax = (track.vx - track.lastVx) / dt;
+      const ay = (track.vy - track.lastVy) / dt;
+
+      track.speed = Math.hypot(track.vx, track.vy);
+      track.accel = Math.hypot(ax, ay);
+
+      track.lastX = track.x;
+      track.lastY = track.y;
+      track.x = center.x;
+      track.y = center.y;
+      track.lastT = now;
+      track.lastSeen = now;
+      track.landmarks = landmarks;
+
+      track.points.push({
+        x: center.x,
+        y: center.y,
+        t: now
+      });
+    }
+
+    function getPoseCenter(landmarks) {
+      let sumX = 0;
+      let sumY = 0;
+      let count = 0;
+
+      for (const lm of landmarks) {
+        const visibility = lm.visibility ?? 1;
+
+        if (visibility >= MIN_LANDMARK_VISIBILITY) {
+          sumX += toScreenX(clamp(lm.x, 0, 1) * canvas.width);
+          sumY += clamp(lm.y, 0, 1) * canvas.height;
+          count++;
+        }
+      }
+
+      if (count < 8) return null;
+
+      return {
+        x: sumX / count,
+        y: sumY / count
+      };
+    }
+
+    function removeOldTrailPoints(now) {
+      for (const [id, track] of tracks.entries()) {
+        track.points = track.points.filter(p => now - p.t <= TRAIL_MS);
+
+        if (track.points.length === 0 && now - track.lastSeen > TRAIL_MS) {
+          tracks.delete(id);
+        }
+      }
+    }
+
+    function drawScene(now) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (const track of tracks.values()) {
+        // 게임 모드에서는 사람 이동 궤적을 표시하지 않고, 뼈대와 정보만 표시합니다.
+        if (appConfig.mode === "motion") {
+          drawTrail(track, now);
+        }
+
+        if (now - track.lastSeen < 300 && track.landmarks) {
+          drawSkeleton(track);
+          drawLabel(track);
+        }
+      }
+
+      if (appConfig.mode === "coin") {
+        drawCoins();
+        drawCoinHud(now);
+      } else if (appConfig.mode === "word") {
+        drawWordCards();
+        drawWordHud(now);
+      }
+    }
+
+    function drawTrail(track, now) {
+      const points = track.points.filter(p => now - p.t <= TRAIL_MS);
+      if (points.length < 2) return;
+
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 12;
+      ctx.strokeStyle = track.color;
+      ctx.globalAlpha = 0.9;
+
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+
+      ctx.stroke();
+      ctx.restore();
+
+      const last = points[points.length - 1];
+
+      ctx.save();
+      ctx.fillStyle = track.color;
+      ctx.globalAlpha = 0.95;
+      ctx.beginPath();
+      ctx.arc(last.x, last.y, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawSkeleton(track) {
+      const landmarks = track.landmarks;
+
+      ctx.save();
+      ctx.strokeStyle = track.color;
+      ctx.fillStyle = track.color;
+      ctx.lineWidth = 5;
+      ctx.lineCap = "round";
+      ctx.globalAlpha = 0.85;
+
+      for (const [a, b] of POSE_CONNECTIONS) {
+        const p1 = landmarks[a];
+        const p2 = landmarks[b];
+
+        if (!isVisible(p1) || !isVisible(p2)) continue;
+
+        ctx.beginPath();
+        ctx.moveTo(toScreenX(p1.x * canvas.width), p1.y * canvas.height);
+        ctx.lineTo(toScreenX(p2.x * canvas.width), p2.y * canvas.height);
+        ctx.stroke();
+      }
+
+      for (const lm of landmarks) {
+        if (!isVisible(lm)) continue;
+
+        ctx.beginPath();
+        ctx.arc(toScreenX(lm.x * canvas.width), lm.y * canvas.height, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    function drawLabel(track) {
+      const { speedText, accelText } = getMotionText(track);
+      const score =
+        appConfig.mode === "coin"
+          ? getTrackScore(track.id)
+          : appConfig.mode === "word"
+            ? getWordScore(track.id)
+            : 0;
+
+      ctx.save();
+      ctx.font = "bold 18px system-ui";
+      ctx.textBaseline = "top";
+
+      const lines = appConfig.mode === "coin"
+        ? [
+            { text: `사람 ${track.id}`, color: track.color },
+            { text: `점수 ${score}`, color: "#facc15" },
+            { text: `v ${speedText}`, color: "#ffffff" },
+            { text: `a ${accelText}`, color: "#ffffff" }
+          ]
+        : appConfig.mode === "word"
+          ? [
+              { text: `사람 ${track.id}`, color: track.color },
+              { text: `점수 ${score}`, color: "#facc15" },
+              { text: `목표 ${wordGame.targetWord || "-"}`, color: "#ffffff" }
+            ]
+          : [
+              { text: `사람 ${track.id}`, color: track.color },
+              { text: `v ${speedText}`, color: "#ffffff" },
+              { text: `a ${accelText}`, color: "#ffffff" }
+            ];
+
+      const boxW = 220;
+      const boxH = 16 + lines.length * 24;
+      const x = clamp(track.x + 14, 8, canvas.width - boxW - 10);
+      const y = clamp(track.y - 54, 8, canvas.height - boxH - 10);
+
+      ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
+      ctx.fillRect(x - 8, y - 6, boxW, boxH);
+
+      lines.forEach((line, index) => {
+        ctx.fillStyle = line.color;
+        ctx.fillText(line.text, x, y + index * 24);
+      });
+
+      ctx.restore();
+    }
+
+    function updateMetrics(now) {
+      const activeTracks = [...tracks.values()]
+        .filter(track => now - track.lastSeen < 1000)
+        .sort((a, b) => {
+          if (appConfig.mode === "coin") {
+            return getTrackScore(b.id) - getTrackScore(a.id);
+          }
+          if (appConfig.mode === "word") {
+            return getWordScore(b.id) - getWordScore(a.id);
+          }
+          return a.id - b.id;
+        });
+
+      if (activeTracks.length === 0) {
+        if (appConfig.mode === "coin" && coinGame.active) {
+          const remaining = getGameRemainingSeconds(now);
+          metricsEl.innerHTML =
+            `<div class="person-card">
+              <strong style="color:#facc15">코인 게임</strong>
+              <div>남은 시간: ${remaining}초</div>
+              <div>감지된 사람이 없습니다.</div>
+              <div class="small">손목으로 코인에 닿으면 점수를 얻습니다.</div>
+            </div>`;
+        } else if (appConfig.mode === "word" && wordGame.active) {
+          const remaining = getWordRemainingSeconds(now);
+          metricsEl.innerHTML =
+            `<div class="person-card">
+              <strong style="color:#facc15">같은 글자 맞추기</strong>
+              <div>제시 단어: <b>${wordGame.targetWord || "-"}</b></div>
+              <div>남은 시간: ${remaining}초</div>
+              <div>감지된 사람이 없습니다.</div>
+              <div class="small">손목으로 같은 단어 카드를 잡으면 점수를 얻습니다.</div>
+            </div>`;
+        } else {
+          metricsEl.textContent = "감지된 사람이 없습니다.";
+        }
+        return;
+      }
+
+      if (appConfig.mode === "coin") {
+        const remaining = getGameRemainingSeconds(now);
+        const winnerText = coinGame.gameOver ? getWinnerText() : "";
+
+        metricsEl.innerHTML =
+          `<div class="person-card" style="border-left-color:#facc15">
+            <strong style="color:#facc15">코인 게임</strong>
+            <div>남은 시간: ${remaining}초</div>
+            <div>코인 액수: ${appConfig.coinMinValue}~${appConfig.coinMaxValue}, 10 단위 랜덤</div>
+            <div>느린 코인/빠른 코인이 화면 안에서 움직입니다.</div>
+            ${winnerText ? `<div class="winner">${winnerText}</div>` : ""}
+            <div class="small">왼손/오른손 손목으로 코인을 잡으세요.</div>
+          </div>` +
+          activeTracks.map(track => {
+            const { speedText, accelText } = getMotionText(track);
+            const x = Math.round(track.x);
+            const y = Math.round(track.y);
+            const score = getTrackScore(track.id);
+
+            return `
+              <div class="person-card" style="border-left-color:${track.color}">
+                <strong style="color:${track.color}">사람 ${track.id}</strong>
+                <div class="score-line">점수: ${score}</div>
+                <div>중심 위치: (${x}, ${y}) px</div>
+                <div>속도: ${speedText}</div>
+                <div>가속도: ${accelText}</div>
+              </div>
+            `;
+          }).join("");
+
+        return;
+      }
+
+      if (appConfig.mode === "word") {
+        const remaining = getWordRemainingSeconds(now);
+        const winnerText = wordGame.gameOver ? getWordWinnerText() : "";
+
+        metricsEl.innerHTML =
+          `<div class="person-card" style="border-left-color:#facc15">
+            <strong style="color:#facc15">같은 글자 맞추기</strong>
+            <div>제시 단어: <b>${wordGame.targetWord || "-"}</b></div>
+            <div>남은 시간: ${remaining}초</div>
+            <div>정답: +${appConfig.wordScore}점 / 오답: -${appConfig.wordWrongPenalty}점</div>
+            ${winnerText ? `<div class="winner">${winnerText}</div>` : ""}
+            <div class="small">떠다니는 단어 중 제시 단어와 같은 단어를 손목으로 잡으세요.</div>
+          </div>` +
+          activeTracks.map(track => {
+            const x = Math.round(track.x);
+            const y = Math.round(track.y);
+            const score = getWordScore(track.id);
+
+            return `
+              <div class="person-card" style="border-left-color:${track.color}">
+                <strong style="color:${track.color}">사람 ${track.id}</strong>
+                <div class="score-line">점수: ${score}</div>
+                <div>중심 위치: (${x}, ${y}) px</div>
+              </div>
+            `;
+          }).join("");
+
+        return;
+      }
+
+      metricsEl.innerHTML = activeTracks.map(track => {
+        const { speedText, accelText } = getMotionText(track);
+        const x = Math.round(track.x);
+        const y = Math.round(track.y);
+
+        return `
+          <div class="person-card" style="border-left-color:${track.color}">
+            <strong style="color:${track.color}">사람 ${track.id}</strong>
+            <div>중심 위치: (${x}, ${y}) px</div>
+            <div>속도: ${speedText}</div>
+            <div>가속도: ${accelText}</div>
+            <div class="small">궤적 유지: 최근 ${appConfig.trailSeconds}초</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function resetCoinGame(now) {
+      clearCoinGame();
+
+      if (!canvas.width || !canvas.height) return;
+
+      coinGame.active = true;
+      coinGame.startedAt = now;
+      coinGame.endsAt = now + appConfig.coinGameSeconds * 1000;
+      coinGame.gameOver = false;
+      coinGame.nextCoinId = 1;
+      coinGame.lastUpdate = now;
+      coinGame.coins = [];
+      coinGame.scores = new Map();
+
+      for (let i = 0; i < appConfig.coinCount; i++) {
+        coinGame.coins.push(createCoin());
+      }
+    }
+
+    function clearCoinGame() {
+      coinGame.active = false;
+      coinGame.startedAt = 0;
+      coinGame.endsAt = 0;
+      coinGame.gameOver = false;
+      coinGame.coins = [];
+      coinGame.scores = new Map();
+      coinGame.nextCoinId = 1;
+      coinGame.lastUpdate = 0;
+    }
+
+    function adjustCoinCount() {
+      while (coinGame.coins.length < appConfig.coinCount) {
+        coinGame.coins.push(createCoin());
+      }
+
+      while (coinGame.coins.length > appConfig.coinCount) {
+        coinGame.coins.pop();
+      }
+    }
+
+    function updateCoinGame(now) {
+      if (!coinGame.active) {
+        resetCoinGame(now);
+      }
+
+      if (coinGame.gameOver) return;
+
+      if (now >= coinGame.endsAt) {
+        coinGame.gameOver = true;
+        statusEl.textContent = `게임 종료. ${getWinnerText()}`;
+        return;
+      }
+
+      const dt = Math.min(Math.max((now - coinGame.lastUpdate) / 1000, 0), 0.08);
+      coinGame.lastUpdate = now;
+      moveCoins(dt);
+
+      for (const track of tracks.values()) {
+        if (now - track.lastSeen > 400 || !track.landmarks) continue;
+
+        if (!coinGame.scores.has(track.id)) {
+          coinGame.scores.set(track.id, 0);
+        }
+
+        const wristPoints = getWristPoints(track.landmarks);
+        if (wristPoints.length === 0) continue;
+
+        for (const coin of coinGame.coins) {
+          for (const wrist of wristPoints) {
+            const hitDistance = coin.radius + 18;
+
+            if (distance(wrist.x, wrist.y, coin.x, coin.y) <= hitDistance) {
+              addScore(track.id, coin.value);
+              respawnCoin(coin);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    function createCoin() {
+      const radius = appConfig.coinRadius;
+      const margin = radius + 20;
+
+      const moving = makeCoinMovement();
+
+      return {
+        id: coinGame.nextCoinId++,
+        x: randomBetween(margin, Math.max(margin, canvas.width - margin)),
+        y: randomBetween(margin, Math.max(margin, canvas.height - margin)),
+        radius,
+        value: randomCoinValue(),
+        type: moving.type,
+        speed: moving.speed,
+        vx: moving.vx,
+        vy: moving.vy
+      };
+    }
+
+    function respawnCoin(coin) {
+      const radius = appConfig.coinRadius;
+      const margin = radius + 20;
+
+      const moving = makeCoinMovement();
+
+      coin.x = randomBetween(margin, Math.max(margin, canvas.width - margin));
+      coin.y = randomBetween(margin, Math.max(margin, canvas.height - margin));
+      coin.radius = radius;
+      coin.value = randomCoinValue();
+      coin.type = moving.type;
+      coin.speed = moving.speed;
+      coin.vx = moving.vx;
+      coin.vy = moving.vy;
+    }
+
+    function makeCoinMovement() {
+      const isFast = Math.random() < appConfig.coinFastRatio;
+      const speed = isFast ? appConfig.coinFastSpeed : appConfig.coinSlowSpeed;
+      const angle = Math.random() * Math.PI * 2;
+
+      return {
+        type: isFast ? "fast" : "slow",
+        speed,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed
+      };
+    }
+
+    function moveCoins(dt) {
+      if (!dt || dt <= 0) return;
+
+      for (const coin of coinGame.coins) {
+        coin.x += coin.vx * dt;
+        coin.y += coin.vy * dt;
+
+        const minX = coin.radius;
+        const maxX = canvas.width - coin.radius;
+        const minY = coin.radius;
+        const maxY = canvas.height - coin.radius;
+
+        if (coin.x <= minX) {
+          coin.x = minX;
+          coin.vx = Math.abs(coin.vx);
+        } else if (coin.x >= maxX) {
+          coin.x = maxX;
+          coin.vx = -Math.abs(coin.vx);
+        }
+
+        if (coin.y <= minY) {
+          coin.y = minY;
+          coin.vy = Math.abs(coin.vy);
+        } else if (coin.y >= maxY) {
+          coin.y = maxY;
+          coin.vy = -Math.abs(coin.vy);
+        }
+      }
+    }
+
+    function randomCoinValue() {
+      const minStep = Math.ceil(appConfig.coinMinValue / 10);
+      const maxStep = Math.max(minStep, Math.floor(appConfig.coinMaxValue / 10));
+      return randomInt(minStep, maxStep) * 10;
+    }
+
+    function drawCoins() {
+      if (!coinGame.active || coinGame.gameOver) return;
+
+      for (const coin of coinGame.coins) {
+        ctx.save();
+
+        const gradient = ctx.createRadialGradient(
+          coin.x - coin.radius * 0.35,
+          coin.y - coin.radius * 0.35,
+          4,
+          coin.x,
+          coin.y,
+          coin.radius
+        );
+
+        gradient.addColorStop(0, "#fff7ad");
+        gradient.addColorStop(0.45, "#facc15");
+        gradient.addColorStop(1, "#ca8a04");
+
+        ctx.fillStyle = gradient;
+        ctx.strokeStyle = "rgba(255,255,255,0.95)";
+        ctx.lineWidth = 4;
+
+        ctx.beginPath();
+        ctx.arc(coin.x, coin.y, coin.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.strokeStyle = "rgba(120, 53, 15, 0.45)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(coin.x, coin.y, coin.radius * 0.72, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = "#451a03";
+        ctx.font = `bold ${Math.max(14, Math.round(coin.radius * 0.58))}px system-ui`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(coin.value), coin.x, coin.y - 2);
+
+        ctx.font = `bold ${Math.max(9, Math.round(coin.radius * 0.32))}px system-ui`;
+        ctx.fillStyle = coin.type === "fast" ? "#7f1d1d" : "#064e3b";
+        ctx.fillText(coin.type === "fast" ? "FAST" : "SLOW", coin.x, coin.y + coin.radius * 0.42);
+
+        ctx.restore();
+      }
+    }
+
+    function drawCoinHud(now) {
+      if (!coinGame.active) return;
+
+      const remaining = getGameRemainingSeconds(now);
+      const scores = [...coinGame.scores.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4);
+
+      ctx.save();
+      ctx.font = "bold 24px system-ui";
+      ctx.textBaseline = "top";
+
+      const lines = [
+        `COIN MODE`,
+        `남은 시간: ${remaining}초`
+      ];
+
+      if (scores.length > 0) {
+        for (const [id, score] of scores) {
+          lines.push(`사람 ${id}: ${score}점`);
+        }
+      } else {
+        lines.push("손목으로 코인을 잡으세요");
+      }
+
+      if (coinGame.gameOver) {
+        lines.push(getWinnerText());
+      }
+
+      const boxW = 310;
+      const boxH = 18 + lines.length * 30;
+      const x = 18;
+      const y = Math.min(canvas.height - boxH - 16, 118);
+
+      ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
+      ctx.fillRect(x, y, boxW, boxH);
+
+      lines.forEach((line, index) => {
+        ctx.fillStyle = index === 0 ? "#facc15" : "#ffffff";
+        ctx.fillText(line, x + 14, y + 10 + index * 30);
+      });
+
+      ctx.restore();
+    }
+
+
+    function resetWordGame(now) {
+      clearWordGame();
+
+      if (!canvas.width || !canvas.height) return;
+
+      wordGame.active = true;
+      wordGame.startedAt = now;
+      wordGame.endsAt = now + appConfig.wordGameSeconds * 1000;
+      wordGame.gameOver = false;
+      wordGame.nextCardId = 1;
+      wordGame.lastUpdate = now;
+      wordGame.cards = [];
+      wordGame.scores = new Map();
+
+      chooseNewWordTarget();
+      regenerateWordCards();
+    }
+
+    function clearWordGame() {
+      wordGame.active = false;
+      wordGame.startedAt = 0;
+      wordGame.endsAt = 0;
+      wordGame.gameOver = false;
+      wordGame.targetWord = "";
+      wordGame.cards = [];
+      wordGame.scores = new Map();
+      wordGame.nextCardId = 1;
+      wordGame.lastUpdate = 0;
+    }
+
+    function adjustWordCount() {
+      if (!wordGame.active || wordGame.gameOver) return;
+
+      while (wordGame.cards.length < appConfig.wordCount) {
+        wordGame.cards.push(createWordCard());
+      }
+
+      while (wordGame.cards.length > appConfig.wordCount) {
+        wordGame.cards.pop();
+      }
+
+      if (!wordGame.cards.some(card => card.word === wordGame.targetWord)) {
+        if (wordGame.cards.length > 0) {
+          wordGame.cards[0] = createWordCard(wordGame.targetWord);
+        } else {
+          wordGame.cards.push(createWordCard(wordGame.targetWord));
+        }
+      }
+    }
+
+    function updateWordGame(now) {
+      if (!wordGame.active) {
+        resetWordGame(now);
+      }
+
+      if (wordGame.gameOver) return;
+
+      if (now >= wordGame.endsAt) {
+        wordGame.gameOver = true;
+        statusEl.textContent = `게임 종료. ${getWordWinnerText()}`;
+        return;
+      }
+
+      const dt = Math.min(Math.max((now - wordGame.lastUpdate) / 1000, 0), 0.08);
+      wordGame.lastUpdate = now;
+      moveWordCards(dt);
+
+      let actionDone = false;
+
+      for (const track of tracks.values()) {
+        if (now - track.lastSeen > 400 || !track.landmarks) continue;
+
+        if (!wordGame.scores.has(track.id)) {
+          wordGame.scores.set(track.id, 0);
+        }
+
+        const wristPoints = getWristPoints(track.landmarks);
+        if (wristPoints.length === 0) continue;
+
+        for (const card of wordGame.cards) {
+          for (const wrist of wristPoints) {
+            if (!isPointInWordCard(wrist.x, wrist.y, card)) continue;
+
+            if (card.word === wordGame.targetWord) {
+              addWordScore(track.id, appConfig.wordScore);
+              chooseNewWordTarget();
+              regenerateWordCards();
+            } else {
+              subtractWordScore(track.id, appConfig.wordWrongPenalty);
+              respawnWordCard(card);
+            }
+
+            actionDone = true;
+            break;
+          }
+
+          if (actionDone) break;
+        }
+
+        if (actionDone) break;
+      }
+    }
+
+    function chooseNewWordTarget() {
+      wordGame.targetWord = randomWordFromList();
+    }
+
+    function regenerateWordCards() {
+      wordGame.cards = [];
+
+      const count = Math.max(1, appConfig.wordCount);
+      wordGame.cards.push(createWordCard(wordGame.targetWord));
+
+      while (wordGame.cards.length < count) {
+        wordGame.cards.push(createWordCard());
+      }
+
+      shuffleArray(wordGame.cards);
+    }
+
+    function createWordCard(word = null) {
+      const width = appConfig.wordCardWidth;
+      const height = appConfig.wordCardHeight;
+      const marginX = width / 2 + 20;
+      const marginY = height / 2 + 20;
+      const moving = makeWordMovement();
+
+      return {
+        id: wordGame.nextCardId++,
+        word: word || randomWordFromList(),
+        x: randomBetween(marginX, Math.max(marginX, canvas.width - marginX)),
+        y: randomBetween(marginY, Math.max(marginY, canvas.height - marginY)),
+        width,
+        height,
+        type: moving.type,
+        speed: moving.speed,
+        vx: moving.vx,
+        vy: moving.vy
+      };
+    }
+
+    function respawnWordCard(card) {
+      const newCard = createWordCard();
+
+      card.word = newCard.word;
+      card.x = newCard.x;
+      card.y = newCard.y;
+      card.width = newCard.width;
+      card.height = newCard.height;
+      card.type = newCard.type;
+      card.speed = newCard.speed;
+      card.vx = newCard.vx;
+      card.vy = newCard.vy;
+    }
+
+    function makeWordMovement() {
+      const isFast = Math.random() < appConfig.wordFastRatio;
+      const speed = isFast ? appConfig.wordFastSpeed : appConfig.wordSlowSpeed;
+      const angle = Math.random() * Math.PI * 2;
+
+      return {
+        type: isFast ? "fast" : "slow",
+        speed,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed
+      };
+    }
+
+    function moveWordCards(dt) {
+      if (!dt || dt <= 0) return;
+
+      for (const card of wordGame.cards) {
+        card.x += card.vx * dt;
+        card.y += card.vy * dt;
+
+        const minX = card.width / 2;
+        const maxX = canvas.width - card.width / 2;
+        const minY = card.height / 2;
+        const maxY = canvas.height - card.height / 2;
+
+        if (card.x <= minX) {
+          card.x = minX;
+          card.vx = Math.abs(card.vx);
+        } else if (card.x >= maxX) {
+          card.x = maxX;
+          card.vx = -Math.abs(card.vx);
+        }
+
+        if (card.y <= minY) {
+          card.y = minY;
+          card.vy = Math.abs(card.vy);
+        } else if (card.y >= maxY) {
+          card.y = maxY;
+          card.vy = -Math.abs(card.vy);
+        }
+      }
+    }
+
+    function drawWordCards() {
+      if (!wordGame.active || wordGame.gameOver) return;
+
+      for (const card of wordGame.cards) {
+        const x = card.x - card.width / 2;
+        const y = card.y - card.height / 2;
+
+        ctx.save();
+
+        ctx.fillStyle = "rgba(248, 250, 252, 0.92)";
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.95)";
+        ctx.lineWidth = 3;
+
+        roundRect(ctx, x, y, card.width, card.height, 14);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#0f172a";
+        ctx.font = `bold ${Math.max(20, Math.round(card.height * 0.42))}px system-ui`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(card.word, card.x, card.y - 4);
+
+        ctx.font = `bold ${Math.max(9, Math.round(card.height * 0.18))}px system-ui`;
+        ctx.fillStyle = card.type === "fast" ? "#991b1b" : "#065f46";
+        ctx.fillText(card.type === "fast" ? "FAST" : "SLOW", card.x, card.y + card.height * 0.28);
+
+        ctx.restore();
+      }
+    }
+
+    function drawWordHud(now) {
+      if (!wordGame.active) return;
+
+      const remaining = getWordRemainingSeconds(now);
+      const scores = [...wordGame.scores.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4);
+
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+
+      const targetText = `제시 단어: ${wordGame.targetWord || "-"}`;
+      const boxW = Math.min(canvas.width - 40, 520);
+      const boxH = 96;
+      const x = (canvas.width - boxW) / 2;
+      const y = 18;
+
+      ctx.fillStyle = "rgba(2, 6, 23, 0.78)";
+      roundRect(ctx, x, y, boxW, boxH, 18);
+      ctx.fill();
+
+      ctx.fillStyle = "#facc15";
+      ctx.font = "bold 34px system-ui";
+      ctx.fillText(targetText, canvas.width / 2, y + 12);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 20px system-ui";
+      ctx.fillText(`남은 시간: ${remaining}초`, canvas.width / 2, y + 58);
+
+      ctx.textAlign = "left";
+      ctx.font = "bold 22px system-ui";
+
+      const lines = [
+        "WORD MODE",
+        `목표: ${wordGame.targetWord || "-"}`,
+        `남은 시간: ${remaining}초`,
+        `정답 +${appConfig.wordScore} / 오답 -${appConfig.wordWrongPenalty}`
+      ];
+
+      if (scores.length > 0) {
+        for (const [id, score] of scores) {
+          lines.push(`사람 ${id}: ${score}점`);
+        }
+      } else {
+        lines.push("같은 단어를 손목으로 잡으세요");
+      }
+
+      if (wordGame.gameOver) {
+        lines.push(getWordWinnerText());
+      }
+
+      const sideBoxW = 330;
+      const sideBoxH = 18 + lines.length * 28;
+      const sideX = 18;
+      const sideY = Math.min(canvas.height - sideBoxH - 16, 118);
+
+      ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
+      ctx.fillRect(sideX, sideY, sideBoxW, sideBoxH);
+
+      lines.forEach((line, index) => {
+        ctx.fillStyle = index === 0 ? "#facc15" : "#ffffff";
+        ctx.fillText(line, sideX + 14, sideY + 10 + index * 28);
+      });
+
+      ctx.restore();
+    }
+
+    function isPointInWordCard(px, py, card) {
+      return (
+        px >= card.x - card.width / 2 &&
+        px <= card.x + card.width / 2 &&
+        py >= card.y - card.height / 2 &&
+        py <= card.y + card.height / 2
+      );
+    }
+
+    function randomWordFromList() {
+      const list = appConfig.wordList && appConfig.wordList.length > 0
+        ? appConfig.wordList
+        : DEFAULT_CONFIG.wordList;
+
+      return list[randomInt(0, list.length - 1)];
+    }
+
+    function addWordScore(trackId, value) {
+      const prev = wordGame.scores.get(trackId) || 0;
+      wordGame.scores.set(trackId, prev + value);
+    }
+
+    function subtractWordScore(trackId, value) {
+      const prev = wordGame.scores.get(trackId) || 0;
+      const penalty = Math.max(0, Number(value) || 0);
+      wordGame.scores.set(trackId, prev - penalty);
+    }
+
+    function getWordScore(trackId) {
+      return wordGame.scores.get(trackId) || 0;
+    }
+
+    function getWordRemainingSeconds(now) {
+      if (!wordGame.active) return appConfig.wordGameSeconds;
+      return Math.max(0, Math.ceil((wordGame.endsAt - now) / 1000));
+    }
+
+    function getWordWinnerText() {
+      const scores = [...wordGame.scores.entries()];
+
+      if (scores.length === 0) {
+        return "승자 없음";
+      }
+
+      scores.sort((a, b) => b[1] - a[1]);
+
+      const topScore = scores[0][1];
+      const winners = scores.filter(([, score]) => score === topScore);
+
+      if (topScore <= 0) {
+        return "승자 없음";
+      }
+
+      if (winners.length > 1) {
+        return `공동 우승: ${winners.map(([id]) => `사람 ${id}`).join(", ")} / ${topScore}점`;
+      }
+
+      return `우승: 사람 ${winners[0][0]} / ${topScore}점`;
+    }
+
+    function shuffleArray(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = randomInt(0, i);
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+
+      return array;
+    }
+
+    function roundRect(context, x, y, width, height, radius) {
+      const r = Math.min(radius, width / 2, height / 2);
+
+      context.beginPath();
+      context.moveTo(x + r, y);
+      context.lineTo(x + width - r, y);
+      context.quadraticCurveTo(x + width, y, x + width, y + r);
+      context.lineTo(x + width, y + height - r);
+      context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+      context.lineTo(x + r, y + height);
+      context.quadraticCurveTo(x, y + height, x, y + height - r);
+      context.lineTo(x, y + r);
+      context.quadraticCurveTo(x, y, x + r, y);
+      context.closePath();
+    }
+
+
+    function startRecording() {
+      if (!running || !stream || !canvas.width || !canvas.height) {
+        statusEl.textContent = "카메라가 실행 중일 때만 녹화할 수 있습니다.";
+        return;
+      }
+
+      if (!("MediaRecorder" in window)) {
+        statusEl.textContent = "이 브라우저는 MediaRecorder 녹화를 지원하지 않습니다.";
+        return;
+      }
+
+      if (!recordingCanvas.captureStream) {
+        statusEl.textContent = "이 브라우저는 canvas 녹화를 지원하지 않습니다.";
+        return;
+      }
+
+      if (recording) return;
+
+      recordingCanvas.width = canvas.width;
+      recordingCanvas.height = canvas.height;
+      recordedChunks = [];
+
+      if (downloadLink.href && downloadLink.href.startsWith("blob:")) {
+        URL.revokeObjectURL(downloadLink.href);
+      }
+
+      downloadLink.removeAttribute("href");
+      downloadLink.style.display = "none";
+
+      updateRecordingFrame();
+
+      try {
+        recordingStream = recordingCanvas.captureStream(30);
+
+        const mimeType = getSupportedRecordingMimeType();
+        const options = mimeType
+          ? { mimeType, videoBitsPerSecond: 4500000 }
+          : { videoBitsPerSecond: 4500000 };
+
+        mediaRecorder = new MediaRecorder(recordingStream, options);
+
+        mediaRecorder.ondataavailable = event => {
+          if (event.data && event.data.size > 0) {
+            recordedChunks.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = handleRecordingStop;
+
+        mediaRecorder.start(1000);
+        recording = true;
+
+        recordBtn.disabled = true;
+        recordStopBtn.disabled = false;
+        statusEl.textContent = "녹화 중입니다. 녹화 정지를 누르면 파일을 저장할 수 있습니다.";
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "녹화를 시작할 수 없습니다. 브라우저 지원 여부를 확인하세요.";
+        recording = false;
+        recordBtn.disabled = !running;
+        recordStopBtn.disabled = true;
+
+        if (recordingStream) {
+          recordingStream.getTracks().forEach(track => track.stop());
+          recordingStream = null;
+        }
+      }
+    }
+
+    function stopRecording() {
+      if (!recording || !mediaRecorder) return;
+
+      recording = false;
+      recordBtn.disabled = !running;
+      recordStopBtn.disabled = true;
+
+      try {
+        if (mediaRecorder.state !== "inactive") {
+          mediaRecorder.stop();
+          statusEl.textContent = "녹화 파일을 만드는 중입니다.";
+        }
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "녹화를 정지하는 중 오류가 발생했습니다.";
+      }
+    }
+
+    function handleRecordingStop() {
+      const mimeType = mediaRecorder?.mimeType || "video/webm";
+      const blob = new Blob(recordedChunks, { type: mimeType });
+
+      if (recordingStream) {
+        recordingStream.getTracks().forEach(track => track.stop());
+        recordingStream = null;
+      }
+
+      mediaRecorder = null;
+      recordedChunks = [];
+
+      if (blob.size <= 0) {
+        statusEl.textContent = "녹화 데이터가 없습니다. 다시 녹화해 주세요.";
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const fileName = `motion_recording_${makeTimestampForFileName()}.webm`;
+
+      downloadLink.href = url;
+      downloadLink.download = fileName;
+      downloadLink.textContent = `녹화파일 다운로드 (${formatBytes(blob.size)})`;
+      downloadLink.style.display = "block";
+
+      statusEl.textContent = "녹화가 완료되었습니다. 녹화파일 다운로드를 누르세요.";
+    }
+
+    function updateRecordingFrame() {
+      if (!recording || !recordingCtx || !canvas.width || !canvas.height) return;
+
+      if (recordingCanvas.width !== canvas.width || recordingCanvas.height !== canvas.height) {
+        recordingCanvas.width = canvas.width;
+        recordingCanvas.height = canvas.height;
+      }
+
+      recordingCtx.save();
+      recordingCtx.clearRect(0, 0, recordingCanvas.width, recordingCanvas.height);
+
+      if (appConfig.mirrorCamera) {
+        recordingCtx.translate(recordingCanvas.width, 0);
+        recordingCtx.scale(-1, 1);
+      }
+
+      recordingCtx.drawImage(video, 0, 0, recordingCanvas.width, recordingCanvas.height);
+      recordingCtx.restore();
+
+      recordingCtx.drawImage(canvas, 0, 0, recordingCanvas.width, recordingCanvas.height);
+
+      drawRecordingBadge();
+    }
+
+    function drawRecordingBadge() {
+      if (!recordingCtx) return;
+
+      recordingCtx.save();
+      recordingCtx.font = "bold 22px system-ui";
+      recordingCtx.textBaseline = "top";
+
+      const text = "● REC";
+      const x = recordingCanvas.width - 110;
+      const y = 18;
+
+      recordingCtx.fillStyle = "rgba(2, 6, 23, 0.72)";
+      recordingCtx.fillRect(x - 12, y - 8, 104, 42);
+
+      recordingCtx.fillStyle = "#ef4444";
+      recordingCtx.fillText(text, x, y);
+
+      recordingCtx.restore();
+    }
+
+    function getSupportedRecordingMimeType() {
+      const types = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm"
+      ];
+
+      for (const type of types) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          return type;
+        }
+      }
+
+      return "";
+    }
+
+    function makeTimestampForFileName() {
+      const now = new Date();
+
+      const pad = value => String(value).padStart(2, "0");
+
+      return [
+        now.getFullYear(),
+        pad(now.getMonth() + 1),
+        pad(now.getDate())
+      ].join("") + "_" + [
+        pad(now.getHours()),
+        pad(now.getMinutes()),
+        pad(now.getSeconds())
+      ].join("");
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    function getWristPoints(landmarks) {
+      const points = [];
+      const wristIndexes = [15, 16];
+
+      for (const index of wristIndexes) {
+        const lm = landmarks[index];
+        if (!isVisible(lm)) continue;
+
+        points.push({
+          x: toScreenX(clamp(lm.x, 0, 1) * canvas.width),
+          y: clamp(lm.y, 0, 1) * canvas.height
+        });
+      }
+
+      return points;
+    }
+
+    function addScore(trackId, value) {
+      const prev = coinGame.scores.get(trackId) || 0;
+      coinGame.scores.set(trackId, prev + value);
+    }
+
+    function getTrackScore(trackId) {
+      return coinGame.scores.get(trackId) || 0;
+    }
+
+    function getGameRemainingSeconds(now) {
+      if (!coinGame.active) return appConfig.coinGameSeconds;
+      return Math.max(0, Math.ceil((coinGame.endsAt - now) / 1000));
+    }
+
+    function getWinnerText() {
+      const scores = [...coinGame.scores.entries()];
+
+      if (scores.length === 0) {
+        return "승자 없음";
+      }
+
+      scores.sort((a, b) => b[1] - a[1]);
+
+      const topScore = scores[0][1];
+      const winners = scores.filter(([, score]) => score === topScore);
+
+      if (topScore <= 0) {
+        return "승자 없음";
+      }
+
+      if (winners.length > 1) {
+        return `공동 우승: ${winners.map(([id]) => `사람 ${id}`).join(", ")} / ${topScore}점`;
+      }
+
+      return `우승: 사람 ${winners[0][0]} / ${topScore}점`;
+    }
+
+    function getMotionText(track) {
+      const meterPixels = appConfig.meterPixels;
+
+      if (Number.isFinite(meterPixels) && meterPixels > 0) {
+        const speedM = track.speed / meterPixels;
+        const accelM = track.accel / meterPixels;
+
+        return {
+          speedText: `${speedM.toFixed(2)} m/s`,
+          accelText: `${accelM.toFixed(2)} m/s²`
+        };
+      }
+
+      return {
+        speedText: `${track.speed.toFixed(0)} px/s`,
+        accelText: `${track.accel.toFixed(0)} px/s²`
+      };
+    }
+
+    function toScreenX(x) {
+      return appConfig.mirrorCamera ? canvas.width - x : x;
+    }
+
+    function isVisible(lm) {
+      return lm && (lm.visibility ?? 1) >= MIN_LANDMARK_VISIBILITY;
+    }
+
+    function distance(x1, y1, x2, y2) {
+      return Math.hypot(x1 - x2, y1 - y2);
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function randomBetween(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function randomInt(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    startBtn.disabled = true;
+    recordBtn.disabled = true;
+    recordStopBtn.disabled = true;
+
+    startBtn.addEventListener("click", startCamera);
+    stopBtn.addEventListener("click", stopCamera);
+    recordBtn.addEventListener("click", startRecording);
+    recordStopBtn.addEventListener("click", stopRecording);
+
+    await loadConfig();
+    initPoseLandmarker();
+  </script>
+</body>
+</html>
