@@ -137,6 +137,16 @@
       color: #fff;
     }
 
+    #gameStartBtn {
+      background: #facc15;
+      color: #422006;
+    }
+
+    #gameRestartBtn {
+      background: #14b8a6;
+      color: #042f2e;
+    }
+
     #recordBtn {
       background: #38bdf8;
       color: #082f49;
@@ -262,6 +272,8 @@
       <div class="controls">
         <button id="startBtn">카메라 시작</button>
         <button id="stopBtn" disabled>정지</button>
+        <button id="gameStartBtn" disabled>게임 시작</button>
+        <button id="gameRestartBtn" disabled>게임 다시시작</button>
         <button id="recordBtn" disabled>녹화 시작</button>
         <button id="recordStopBtn" disabled>녹화 정지</button>
         <a id="downloadLink" class="download-link" href="#" download="motion_recording.webm">녹화파일 다운로드</a>
@@ -293,6 +305,8 @@
 
     const startBtn = document.getElementById("startBtn");
     const stopBtn = document.getElementById("stopBtn");
+    const gameStartBtn = document.getElementById("gameStartBtn");
+    const gameRestartBtn = document.getElementById("gameRestartBtn");
     const recordBtn = document.getElementById("recordBtn");
     const recordStopBtn = document.getElementById("recordStopBtn");
     const downloadLink = document.getElementById("downloadLink");
@@ -310,6 +324,9 @@
     let recordingStream = null;
     let recordingCanvas = document.createElement("canvas");
     let recordingCtx = recordingCanvas.getContext("2d");
+
+    let gameMusic = new Audio();
+    let musicStopTimer = null;
 
     /*
       설정값은 config.json에서 불러옵니다.
@@ -337,6 +354,11 @@
       meterPixels: null,
       trailSeconds: 10,
       configRefreshMs: 5000,
+
+      // 게임 모드에서만 사용하는 배경음악 설정
+      gameMusicUrl: "",
+      gameMusicVolume: 0.7,
+      musicAfterGameSeconds: 15,
 
       coinGameSeconds: 60,
       coinCount: 8,
@@ -493,6 +515,9 @@
       const meterPixels = Number(config.meterPixels);
       const trailSeconds = Number(config.trailSeconds);
       const configRefreshMs = Number(config.configRefreshMs);
+      const gameMusicUrl = String(config.gameMusicUrl ?? DEFAULT_CONFIG.gameMusicUrl).trim();
+      const gameMusicVolume = Number(config.gameMusicVolume);
+      const musicAfterGameSeconds = Number(config.musicAfterGameSeconds);
 
       const coinGameSeconds = Number(config.coinGameSeconds);
       const coinCount = Number(config.coinCount);
@@ -540,6 +565,15 @@
           Number.isFinite(configRefreshMs) && configRefreshMs >= 1000
             ? configRefreshMs
             : DEFAULT_CONFIG.configRefreshMs,
+        gameMusicUrl,
+        gameMusicVolume:
+          Number.isFinite(gameMusicVolume)
+            ? clamp(gameMusicVolume, 0, 1)
+            : DEFAULT_CONFIG.gameMusicVolume,
+        musicAfterGameSeconds:
+          Number.isFinite(musicAfterGameSeconds) && musicAfterGameSeconds >= 0
+            ? Math.min(musicAfterGameSeconds, 120)
+            : DEFAULT_CONFIG.musicAfterGameSeconds,
 
         coinGameSeconds:
           Number.isFinite(coinGameSeconds) && coinGameSeconds > 0
@@ -628,6 +662,9 @@
         : `보정 사용 안 함, px/s와 px/s² 표시`;
 
       const cameraText = appConfig.mirrorCamera ? "좌우반전" : "기본 방향";
+      const musicText = appConfig.gameMusicUrl
+        ? `사용, 종료 후 ${appConfig.musicAfterGameSeconds}초 유지`
+        : "사용 안 함";
       video.style.transform = appConfig.mirrorCamera ? "scaleX(-1)" : "none";
       video.style.transformOrigin = "center center";
 
@@ -640,7 +677,8 @@
           `코인 수: <b>${appConfig.coinCount}개</b><br>` +
           `코인 액수: <b>${appConfig.coinMinValue}~${appConfig.coinMaxValue}</b>, ` +
           `느린 코인: <b>${appConfig.coinSlowSpeed}px/s</b>, ` +
-          `빠른 코인: <b>${appConfig.coinFastSpeed}px/s</b>`;
+          `빠른 코인: <b>${appConfig.coinFastSpeed}px/s</b><br>` +
+          `배경음악: <b>${musicText}</b>`;
       } else if (appConfig.mode === "word") {
         configInfoEl.innerHTML =
           `현재 모드: <b>${modeText}</b><br>` +
@@ -649,7 +687,8 @@
           `게임 제한시간: <b>${appConfig.wordGameSeconds}초</b>, ` +
           `단어 카드 수: <b>${appConfig.wordCount}개</b><br>` +
           `정답 점수: <b>+${appConfig.wordScore}점</b>, ` +
-          `오답 감점: <b>-${appConfig.wordWrongPenalty}점</b>`;
+          `오답 감점: <b>-${appConfig.wordWrongPenalty}점</b><br>` +
+          `배경음악: <b>${musicText}</b>`;
       } else {
         configInfoEl.innerHTML =
           `현재 모드: <b>${modeText}</b><br>` +
@@ -659,15 +698,17 @@
       }
 
       if (modeChanged) {
-        if (appConfig.mode === "coin") {
-          clearWordGame();
-          resetCoinGame(performance.now());
-        } else if (appConfig.mode === "word") {
-          clearCoinGame();
-          resetWordGame(performance.now());
-        } else {
-          clearCoinGame();
-          clearWordGame();
+        clearCoinGame();
+        clearWordGame();
+        stopGameMusic(true);
+        updateGameButtons();
+
+        if (running) {
+          if (isGameMode()) {
+            statusEl.textContent = "카메라 준비 완료. 게임 시작 버튼을 누르면 게임이 시작됩니다.";
+          } else {
+            statusEl.textContent = "측정 중입니다. motion 모드에서는 게임과 배경음악이 실행되지 않습니다.";
+          }
         }
       }
 
@@ -771,19 +812,19 @@
 
         tracks.clear();
 
+        clearCoinGame();
+        clearWordGame();
+        stopGameMusic(true);
+
         if (appConfig.mode === "coin") {
-          clearWordGame();
-          resetCoinGame(performance.now());
-          statusEl.textContent = "코인 게임 중입니다. 손목으로 코인을 잡아 점수를 얻으세요.";
+          statusEl.textContent = "카메라 준비 완료. 게임 시작 버튼을 누르면 코인 게임이 시작됩니다.";
         } else if (appConfig.mode === "word") {
-          clearCoinGame();
-          resetWordGame(performance.now());
-          statusEl.textContent = "같은 글자 맞추기 게임 중입니다. 상단 제시 단어와 같은 단어를 손목으로 잡으세요.";
+          statusEl.textContent = "카메라 준비 완료. 게임 시작 버튼을 누르면 같은 글자 맞추기 게임이 시작됩니다.";
         } else {
-          clearCoinGame();
-          clearWordGame();
           statusEl.textContent = "측정 중입니다. 사람의 중심 이동 궤적이 최근 설정 시간 동안 표시됩니다.";
         }
+
+        updateGameButtons();
 
         requestAnimationFrame(renderLoop);
       } catch (err) {
@@ -809,9 +850,12 @@
       tracks.clear();
       clearCoinGame();
       clearWordGame();
+      stopGameMusic(true);
 
       startBtn.disabled = false;
       stopBtn.disabled = true;
+      gameStartBtn.disabled = true;
+      gameRestartBtn.disabled = true;
       recordBtn.disabled = true;
       recordStopBtn.disabled = true;
       metricsEl.textContent = "측정이 정지되었습니다.";
@@ -1286,15 +1330,13 @@
     }
 
     function updateCoinGame(now) {
-      if (!coinGame.active) {
-        resetCoinGame(now);
-      }
-
+      if (!coinGame.active) return;
       if (coinGame.gameOver) return;
 
       if (now >= coinGame.endsAt) {
         coinGame.gameOver = true;
-        statusEl.textContent = `게임 종료. ${getWinnerText()}`;
+        statusEl.textContent = `게임 종료. ${getWinnerText()} 배경음악은 ${appConfig.musicAfterGameSeconds}초 후 정지됩니다.`;
+        handleGameFinished();
         return;
       }
 
@@ -1555,15 +1597,13 @@
     }
 
     function updateWordGame(now) {
-      if (!wordGame.active) {
-        resetWordGame(now);
-      }
-
+      if (!wordGame.active) return;
       if (wordGame.gameOver) return;
 
       if (now >= wordGame.endsAt) {
         wordGame.gameOver = true;
-        statusEl.textContent = `게임 종료. ${getWordWinnerText()}`;
+        statusEl.textContent = `게임 종료. ${getWordWinnerText()} 배경음악은 ${appConfig.musicAfterGameSeconds}초 후 정지됩니다.`;
+        handleGameFinished();
         return;
       }
 
@@ -1887,6 +1927,152 @@
     }
 
 
+
+    function isGameMode() {
+      return appConfig.mode === "coin" || appConfig.mode === "word";
+    }
+
+    function isCurrentGameActive() {
+      if (appConfig.mode === "coin") {
+        return coinGame.active && !coinGame.gameOver;
+      }
+
+      if (appConfig.mode === "word") {
+        return wordGame.active && !wordGame.gameOver;
+      }
+
+      return false;
+    }
+
+    function isCurrentGameOver() {
+      if (appConfig.mode === "coin") {
+        return coinGame.active && coinGame.gameOver;
+      }
+
+      if (appConfig.mode === "word") {
+        return wordGame.active && wordGame.gameOver;
+      }
+
+      return false;
+    }
+
+    function updateGameButtons() {
+      const canUseGameButton = running && isGameMode();
+      const gameActive = isCurrentGameActive();
+      const gameOver = isCurrentGameOver();
+
+      gameStartBtn.disabled = !canUseGameButton || gameActive || gameOver;
+      gameRestartBtn.disabled = !canUseGameButton || gameActive || !gameOver;
+    }
+
+    function startSelectedGame() {
+      if (!running) {
+        statusEl.textContent = "카메라를 먼저 시작해야 게임을 실행할 수 있습니다.";
+        return;
+      }
+
+      if (!isGameMode()) {
+        statusEl.textContent = "motion 모드에서는 게임 시작 버튼을 사용하지 않습니다.";
+        updateGameButtons();
+        return;
+      }
+
+      stopGameMusic(true);
+
+      const now = performance.now();
+
+      if (appConfig.mode === "coin") {
+        clearWordGame();
+        resetCoinGame(now);
+        statusEl.textContent = "코인 게임이 시작되었습니다. 손목으로 코인을 잡아 점수를 얻으세요.";
+      } else if (appConfig.mode === "word") {
+        clearCoinGame();
+        resetWordGame(now);
+        statusEl.textContent = "같은 글자 맞추기 게임이 시작되었습니다. 제시 단어와 같은 단어를 잡으세요.";
+      }
+
+      playGameMusicFromBeginning();
+      updateGameButtons();
+    }
+
+    function restartSelectedGame() {
+      startSelectedGame();
+    }
+
+    function handleGameFinished() {
+      updateGameButtons();
+      scheduleGameMusicStopAfterEnd();
+    }
+
+    function playGameMusicFromBeginning() {
+      if (!isGameMode()) return;
+      if (!appConfig.gameMusicUrl) return;
+
+      clearScheduledMusicStop();
+
+      try {
+        const src = new URL(appConfig.gameMusicUrl, window.location.href).href;
+
+        if (gameMusic.src !== src) {
+          gameMusic.src = src;
+        }
+
+        gameMusic.loop = true;
+        gameMusic.volume = clamp(appConfig.gameMusicVolume, 0, 1);
+        gameMusic.currentTime = 0;
+
+        const playPromise = gameMusic.play();
+
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(err => {
+            console.warn("배경음악 재생이 차단되었거나 실패했습니다.", err);
+            statusEl.textContent = "게임은 시작되었지만 배경음악 재생이 차단되었습니다. 브라우저 권한을 확인하세요.";
+          });
+        }
+      } catch (err) {
+        console.warn("배경음악 URL을 사용할 수 없습니다.", err);
+      }
+    }
+
+    function scheduleGameMusicStopAfterEnd() {
+      clearScheduledMusicStop();
+
+      if (!appConfig.gameMusicUrl) return;
+
+      const delayMs = Math.max(0, appConfig.musicAfterGameSeconds * 1000);
+
+      if (delayMs <= 0) {
+        stopGameMusic(false);
+        return;
+      }
+
+      musicStopTimer = setTimeout(() => {
+        stopGameMusic(false);
+      }, delayMs);
+    }
+
+    function clearScheduledMusicStop() {
+      if (musicStopTimer) {
+        clearTimeout(musicStopTimer);
+        musicStopTimer = null;
+      }
+    }
+
+    function stopGameMusic(resetToStart = true) {
+      clearScheduledMusicStop();
+
+      try {
+        gameMusic.pause();
+
+        if (resetToStart) {
+          gameMusic.currentTime = 0;
+        }
+      } catch (err) {
+        console.warn("배경음악 정지 중 오류가 발생했습니다.", err);
+      }
+    }
+
+
     function startRecording() {
       if (!running || !stream || !canvas.width || !canvas.height) {
         statusEl.textContent = "카메라가 실행 중일 때만 녹화할 수 있습니다.";
@@ -2182,11 +2368,15 @@
     }
 
     startBtn.disabled = true;
+    gameStartBtn.disabled = true;
+    gameRestartBtn.disabled = true;
     recordBtn.disabled = true;
     recordStopBtn.disabled = true;
 
     startBtn.addEventListener("click", startCamera);
     stopBtn.addEventListener("click", stopCamera);
+    gameStartBtn.addEventListener("click", startSelectedGame);
+    gameRestartBtn.addEventListener("click", restartSelectedGame);
     recordBtn.addEventListener("click", startRecording);
     recordStopBtn.addEventListener("click", stopRecording);
 
