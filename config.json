@@ -14,6 +14,17 @@
   // 설정 다시 읽는 간격, 5000ms = 5초
   "configRefreshMs": 5000,
 
+  // 게임 모드에서만 사용하는 배경음악 URL
+  // 예: "assets/game-bgm.mp3" 또는 "https://example.com/game-bgm.mp3"
+  // 빈 문자열이면 배경음악을 사용하지 않습니다.
+  "gameMusicUrl": "",
+
+  // 배경음악 볼륨, 0~1
+  "gameMusicVolume": 0.7,
+
+  // 게임 제한시간 종료 후 배경음악을 몇 초 더 재생할지
+  "musicAfterGameSeconds": 15,
+
   // 코인 게임 제한시간
   "coinGameSeconds": 20,
 
