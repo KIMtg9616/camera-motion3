@@ -663,7 +663,7 @@
 
       const cameraText = appConfig.mirrorCamera ? "좌우반전" : "기본 방향";
       const musicText = appConfig.gameMusicUrl
-        ? `사용, 종료 후 ${appConfig.musicAfterGameSeconds}초 유지`
+        ? `대기/진행 중 반복 재생, 종료 후 ${appConfig.musicAfterGameSeconds}초 유지`
         : "사용 안 함";
       video.style.transform = appConfig.mirrorCamera ? "scaleX(-1)" : "none";
       video.style.transformOrigin = "center center";
@@ -705,7 +705,8 @@
 
         if (running) {
           if (isGameMode()) {
-            statusEl.textContent = "카메라 준비 완료. 게임 시작 버튼을 누르면 게임이 시작됩니다.";
+            statusEl.textContent = "카메라 준비 완료. 배경음악이 반복 재생됩니다. 게임 시작 버튼을 누르면 게임이 시작됩니다.";
+            playGameMusicForWaiting();
           } else {
             statusEl.textContent = "측정 중입니다. motion 모드에서는 게임과 배경음악이 실행되지 않습니다.";
           }
@@ -718,6 +719,10 @@
 
       if (appConfig.mode === "word" && wordGame.active && !wordGame.gameOver) {
         adjustWordCount();
+      }
+
+      if (running && isGameMode() && !isCurrentGameActive() && !isCurrentGameOver()) {
+        playGameMusicForWaiting();
       }
 
       restartConfigPolling();
@@ -817,14 +822,18 @@
         stopGameMusic(true);
 
         if (appConfig.mode === "coin") {
-          statusEl.textContent = "카메라 준비 완료. 게임 시작 버튼을 누르면 코인 게임이 시작됩니다.";
+          statusEl.textContent = "카메라 준비 완료. 배경음악이 반복 재생됩니다. 게임 시작 버튼을 누르면 코인 게임이 시작됩니다.";
         } else if (appConfig.mode === "word") {
-          statusEl.textContent = "카메라 준비 완료. 게임 시작 버튼을 누르면 같은 글자 맞추기 게임이 시작됩니다.";
+          statusEl.textContent = "카메라 준비 완료. 배경음악이 반복 재생됩니다. 게임 시작 버튼을 누르면 같은 글자 맞추기 게임이 시작됩니다.";
         } else {
           statusEl.textContent = "측정 중입니다. 사람의 중심 이동 궤적이 최근 설정 시간 동안 표시됩니다.";
         }
 
         updateGameButtons();
+
+        if (isGameMode()) {
+          playGameMusicForWaiting();
+        }
 
         requestAnimationFrame(renderLoop);
       } catch (err) {
@@ -1977,7 +1986,7 @@
         return;
       }
 
-      stopGameMusic(true);
+      clearScheduledMusicStop();
 
       const now = performance.now();
 
@@ -2005,6 +2014,14 @@
     }
 
     function playGameMusicFromBeginning() {
+      playGameMusic(true);
+    }
+
+    function playGameMusicForWaiting() {
+      playGameMusic(false);
+    }
+
+    function playGameMusic(restartFromBeginning = false) {
       if (!isGameMode()) return;
       if (!appConfig.gameMusicUrl) return;
 
@@ -2012,22 +2029,28 @@
 
       try {
         const src = new URL(appConfig.gameMusicUrl, window.location.href).href;
+        const sourceChanged = gameMusic.src !== src;
 
-        if (gameMusic.src !== src) {
+        if (sourceChanged) {
           gameMusic.src = src;
         }
 
         gameMusic.loop = true;
         gameMusic.volume = clamp(appConfig.gameMusicVolume, 0, 1);
-        gameMusic.currentTime = 0;
 
-        const playPromise = gameMusic.play();
+        if (restartFromBeginning || sourceChanged) {
+          gameMusic.currentTime = 0;
+        }
 
-        if (playPromise && typeof playPromise.catch === "function") {
-          playPromise.catch(err => {
-            console.warn("배경음악 재생이 차단되었거나 실패했습니다.", err);
-            statusEl.textContent = "게임은 시작되었지만 배경음악 재생이 차단되었습니다. 브라우저 권한을 확인하세요.";
-          });
+        if (gameMusic.paused || restartFromBeginning || sourceChanged) {
+          const playPromise = gameMusic.play();
+
+          if (playPromise && typeof playPromise.catch === "function") {
+            playPromise.catch(err => {
+              console.warn("배경음악 재생이 차단되었거나 실패했습니다.", err);
+              statusEl.textContent = "배경음악 재생이 차단되었습니다. 게임 시작 버튼을 누르면 다시 재생을 시도합니다.";
+            });
+          }
         }
       } catch (err) {
         console.warn("배경음악 URL을 사용할 수 없습니다.", err);
