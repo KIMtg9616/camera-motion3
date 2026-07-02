@@ -17,7 +17,7 @@
   // 게임 모드에서만 사용하는 배경음악 URL
   // 예: "music/game-bgm.mp3" 또는 "https://example.com/game-bgm.mp3"
   // 빈 문자열이면 배경음악을 사용하지 않습니다.
-  "gameMusicUrl": "bgm1.mp3",
+  "gameMusicUrl": "https://kimtg9616.github.io/camera-motion3/assets/bgm1.mp3",
 
   // 배경음악 볼륨, 0~1
   "gameMusicVolume": 0.7,
