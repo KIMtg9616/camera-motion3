@@ -362,13 +362,16 @@
       backgroundMusicUrl: "",
       backgroundMusicVolume: 0.5,
 
+      // 게임 종료 후 게임음악이 멈춘 뒤 배경음악이 다시 나오기까지의 대기 시간
+      backgroundMusicDelayAfterGameSeconds: 2,
+
       // 게임음악: 게임 시작 후 재생, 게임 종료 후 일정 시간 유지
       gameMusicUrl: "",
       gameMusicVolume: 0.7,
-      gameMusicAfterGameSeconds: 10,
+      gameMusicAfterGameSeconds: 5,
 
       // 이전 버전 호환용
-      musicAfterGameSeconds: 10,
+      musicAfterGameSeconds: 5,
 
       coinGameSeconds: 60,
       coinCount: 8,
@@ -530,6 +533,9 @@
         config.backgroundMusicUrl ?? config.bgMusicUrl ?? DEFAULT_CONFIG.backgroundMusicUrl
       ).trim();
       const backgroundMusicVolume = Number(config.backgroundMusicVolume);
+      const backgroundMusicDelayAfterGameSeconds = Number(
+        config.backgroundMusicDelayAfterGameSeconds ?? DEFAULT_CONFIG.backgroundMusicDelayAfterGameSeconds
+      );
 
       const gameMusicUrl = String(config.gameMusicUrl ?? DEFAULT_CONFIG.gameMusicUrl).trim();
       const gameMusicVolume = Number(config.gameMusicVolume);
@@ -588,6 +594,10 @@
           Number.isFinite(backgroundMusicVolume)
             ? clamp(backgroundMusicVolume, 0, 1)
             : DEFAULT_CONFIG.backgroundMusicVolume,
+        backgroundMusicDelayAfterGameSeconds:
+          Number.isFinite(backgroundMusicDelayAfterGameSeconds) && backgroundMusicDelayAfterGameSeconds >= 0
+            ? Math.min(backgroundMusicDelayAfterGameSeconds, 60)
+            : DEFAULT_CONFIG.backgroundMusicDelayAfterGameSeconds,
         gameMusicUrl,
         gameMusicVolume:
           Number.isFinite(gameMusicVolume)
@@ -693,7 +703,7 @@
         ? "게임 전/종료 후 반복 재생"
         : "사용 안 함";
       const gameMusicText = appConfig.gameMusicUrl
-        ? `게임 중 재생, 종료 후 ${appConfig.gameMusicAfterGameSeconds}초 유지`
+        ? `게임 중 재생, 종료 후 ${appConfig.gameMusicAfterGameSeconds}초 유지, ${appConfig.backgroundMusicDelayAfterGameSeconds}초 뒤 배경음악`
         : "사용 안 함";
       video.style.transform = appConfig.mirrorCamera ? "scaleX(-1)" : "none";
       video.style.transformOrigin = "center center";
@@ -753,7 +763,14 @@
         adjustWordCount();
       }
 
-      if (running && isGameMode() && !isCurrentGameActive()) {
+      if (
+        running &&
+        isGameMode() &&
+        !isCurrentGameActive() &&
+        !isCurrentGameOver() &&
+        !gameMusicStopTimer &&
+        !backgroundMusicStartTimer
+      ) {
         playBackgroundMusic();
       }
 
@@ -1376,7 +1393,7 @@
 
       if (now >= coinGame.endsAt) {
         coinGame.gameOver = true;
-        statusEl.textContent = `게임 종료. ${getWinnerText()} 게임음악은 ${appConfig.gameMusicAfterGameSeconds}초 후 정지되고 배경음악으로 전환됩니다.`;
+        statusEl.textContent = `게임 종료. ${getWinnerText()} 게임음악은 ${appConfig.gameMusicAfterGameSeconds}초 더 재생되고, ${appConfig.backgroundMusicDelayAfterGameSeconds}초 후 배경음악이 재생됩니다.`;
         handleGameFinished();
         return;
       }
@@ -1643,7 +1660,7 @@
 
       if (now >= wordGame.endsAt) {
         wordGame.gameOver = true;
-        statusEl.textContent = `게임 종료. ${getWordWinnerText()} 게임음악은 ${appConfig.gameMusicAfterGameSeconds}초 후 정지되고 배경음악으로 전환됩니다.`;
+        statusEl.textContent = `게임 종료. ${getWordWinnerText()} 게임음악은 ${appConfig.gameMusicAfterGameSeconds}초 더 재생되고, ${appConfig.backgroundMusicDelayAfterGameSeconds}초 후 배경음악이 재생됩니다.`;
         handleGameFinished();
         return;
       }
@@ -2020,6 +2037,7 @@
 
       stopBackgroundMusic(true);
       clearScheduledGameMusicStop();
+      clearScheduledBackgroundMusicStart();
 
       const now = performance.now();
 
@@ -2117,19 +2135,37 @@
     function scheduleGameMusicStopAfterEnd() {
       clearScheduledGameMusicStop();
       clearScheduledBackgroundMusicStart();
+      stopBackgroundMusic(false);
 
-      const delayMs = Math.max(0, appConfig.gameMusicAfterGameSeconds * 1000);
+      const gameDelayMs = Math.max(0, appConfig.gameMusicAfterGameSeconds * 1000);
+      const backgroundDelayMs = Math.max(0, appConfig.backgroundMusicDelayAfterGameSeconds * 1000);
 
-      if (!appConfig.gameMusicUrl || delayMs <= 0) {
+      const startBackgroundAfterDelay = () => {
+        clearScheduledBackgroundMusicStart();
+
+        if (!running || !isGameMode()) return;
+
+        backgroundMusicStartTimer = setTimeout(() => {
+          backgroundMusicStartTimer = null;
+
+          if (!running || !isGameMode()) return;
+          if (isCurrentGameActive()) return;
+
+          playBackgroundMusicFromBeginning();
+        }, backgroundDelayMs);
+      };
+
+      if (!appConfig.gameMusicUrl || gameDelayMs <= 0) {
         stopGameMusic(false);
-        playBackgroundMusicFromBeginning();
+        startBackgroundAfterDelay();
         return;
       }
 
       gameMusicStopTimer = setTimeout(() => {
+        gameMusicStopTimer = null;
         stopGameMusic(false);
-        playBackgroundMusicFromBeginning();
-      }, delayMs);
+        startBackgroundAfterDelay();
+      }, gameDelayMs);
     }
 
     function clearScheduledGameMusicStop() {
@@ -2161,8 +2197,6 @@
     }
 
     function stopGameMusic(resetToStart = true) {
-      clearScheduledGameMusicStop();
-
       try {
         gameMusic.pause();
 
@@ -2175,6 +2209,8 @@
     }
 
     function stopAllMusic() {
+      clearScheduledGameMusicStop();
+      clearScheduledBackgroundMusicStart();
       stopBackgroundMusic(true);
       stopGameMusic(true);
     }
