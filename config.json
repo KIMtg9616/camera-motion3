@@ -17,7 +17,7 @@
   // 배경음악 URL
   // 게임 시작 전과 게임 종료 후에 반복 재생됩니다.
   // 예: "music/background.mp3" 또는 "https://example.com/background.mp3"
-  "backgroundMusicUrl": "assets/bgm3.mp3",
+  "backgroundMusicUrl": "bgm3.mp3",
 
   // 배경음악 볼륨, 0~1
   "backgroundMusicVolume": 0.5,
@@ -25,7 +25,7 @@
   // 게임음악 URL
   // 게임 시작 버튼을 누르면 배경음악이 멈추고 게임음악이 처음부터 재생됩니다.
   // 예: "music/game.mp3" 또는 "https://example.com/game.mp3"
-  "gameMusicUrl": "assets/bgm1.mp3",
+  "gameMusicUrl": "bgm1.mp3",
 
   // 게임음악 볼륨, 0~1
   "gameMusicVolume": 0.7,
